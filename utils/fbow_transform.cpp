@@ -64,11 +64,9 @@ int main(int argc,char **argv){
 
 
         {
-            fbow::fBow vv;
             auto t_start=std::chrono::high_resolution_clock::now();
-            for(int i=0;i<1;i++){
-                vv=voc.transform(features[0]);
-            }
+            fbow::BowVector vv;
+            voc.transform(features[0], vv);
             auto t_end=std::chrono::high_resolution_clock::now();
             cout<<"time="<<double(std::chrono::duration_cast<std::chrono::milliseconds>(t_end-t_start).count())<<" ms"<<endl;
             cout<<vv.begin()->first<<" "<<vv.begin()->second<<endl;
@@ -81,5 +79,5 @@ int main(int argc,char **argv){
     }catch(std::exception &ex){
         cerr<<ex.what()<<endl;
     }
-    
+
 }

@@ -70,18 +70,18 @@ int main(int argc, char **argv) {
         for (size_t i = 0; i<filenames.size(); ++i)
             features[i] = loadFeatures({ filenames[i] }, desc_name);
 
-        fbow::fBow vv, vv2;
+        fbow::BowVector vv, vv2;
         int avgScore = 0;
         int counter = 0;
         auto t_start = std::chrono::high_resolution_clock::now();
         for (size_t i = 0; i<features.size(); ++i)
         {
-            vv = voc.transform(features[i][0]);
+            voc.transform(features[i][0], vv);
             map<double, int> score;
             for (size_t j = 0; j<features.size(); ++j)
             {
 
-                vv2 = voc.transform(features[j][0]);
+                voc.transform(features[j][0], vv2);
                 double score1 = vv.score(vv, vv2);
                 counter++;
                 //		if(score1 > 0.01f)
@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
             command += " ";
             command += str.str();
             command += "/source.JPG";
-            
+
         system((string("cd ") + outDir).c_str());
             system(command.c_str());
             j = 0;

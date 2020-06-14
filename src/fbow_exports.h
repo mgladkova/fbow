@@ -25,12 +25,13 @@ The views and conclusions contained in the software and documentation are those 
 authors and should not be interpreted as representing official policies, either expressed
 or implied, of Rafael Muñoz Salinas.
 ********************************/
- 
 
+
+#pragma once
 
 #ifndef __FBOW_CORE_TYPES_H__
 #define __FBOW_CORE_TYPES_H__
- 
+
 #if !defined _CRT_SECURE_NO_DEPRECATE && _MSC_VER > 1300
 #define _CRT_SECURE_NO_DEPRECATE /* to avoid multiple Visual Studio 2005 warnings */
 #endif
@@ -49,3 +50,18 @@ or implied, of Rafael Muñoz Salinas.
 
 #define  FBOW_VERSION "${PROJECT_VERSION}"
 #endif
+
+/// Id of words
+typedef unsigned int WordId;
+
+/// Value of a word
+typedef double WordValue;
+
+/// Id of nodes in the vocabulary tree
+typedef unsigned int NodeId;
+
+enum ScoringType
+{
+  L1_NORM,
+  L2_NORM
+};

@@ -7,9 +7,36 @@
 
 namespace fbow{
 
-void Vocabulary::setParams(int aligment, int k, int desc_type, int desc_size, int nblocks, std::string desc_name) {
+Vocabulary::Vocabulary(const Vocabulary& voc) : _data((char*)nullptr,&AlignedFree){
+//Vocabulary::Vocabulary(const Vocabulary& voc) {
+	*this = voc;
+}
+
+Vocabulary& Vocabulary::operator = (const Vocabulary &voc){
+	this->clear();
+	this->_params = voc._params;
+    //_data=(char*)AlignedAlloc(_params._aligment,_params._total_size);
+
+    _data.reset();
+    _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
+	memcpy(_data.get(), voc._data.get(), _params._total_size);
+
+    this->cpu_info = voc.cpu_info;
+    this->_scoring_type = voc._scoring_type;
+	return *this;
+}
+
+Vocabulary::~Vocabulary(){
+    _data.reset();
+    //if (_data != 0) AlignedFree (_data);
+}
+
+void Vocabulary::setParams(int aligment, int k, int desc_type, int desc_size, int nblocks,
+                           std::string desc_name, ScoringType scoring_type) {
     auto ns= desc_name.size()<static_cast<size_t>(49)?desc_name.size():128;
     desc_name.resize(ns);
+
+    _scoring_type = scoring_type;
 
     std::strcpy(_params._desc_name_,desc_name.c_str());
     _params._aligment=aligment;
@@ -42,54 +69,16 @@ void Vocabulary::setParams(int aligment, int k, int desc_type, int desc_size, in
 
     //give memory
     _params._total_size=_params._block_size_bytes_wp*_params._nblocks;
-    _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
 
+    // _data = static_cast<char*>(AlignedAlloc(_params._aligment, _params._total_size));
+    // memset(_data, 0, _params._total_size);
+
+    _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
     memset(_data.get(), 0, _params._total_size);
 
 }
 
-void Vocabulary::transform(const cv::Mat &features, int level,fBow &result,fBow2&result2){
-    if (features.rows==0) throw std::runtime_error("Vocabulary::transform No input data");
-    if (features.type()!=_params._desc_type) throw std::runtime_error("Vocabulary::transform features are of different type than vocabulary");
-    if (features.cols *  features.elemSize() !=size_t(_params._desc_size)) throw std::runtime_error("Vocabulary::transform features are of different size than the vocabulary ones");
-
-    //get host info to decide the version to execute
-    if (!cpu_info){
-        cpu_info=std::make_shared<cpu>();
-        cpu_info->detect_host();
-    }
-     //decide the version to employ according to the type of features, aligment and cpu capabilities
-    if (_params._desc_type==CV_8UC1){
-        //orb
-        if (cpu_info->HW_x64){
-            if (_params._desc_size==32)
-                 _transform2<L1_32bytes>(features,level,result,result2);
-            //full akaze
-            else if( _params._desc_size==61 && _params._aligment%8==0)
-                _transform2<L1_61bytes>(features,level,result,result2);
-            //generic
-            else
-                _transform2<L1_x64>(features,level,result,result2);
-        }
-        else  _transform2<L1_x32>(features,level,result,result2);
-    }
-    else if(features.type()==CV_32FC1){
-        if( cpu_info->isSafeAVX() && _params._aligment%32==0){ //AVX version
-            if ( _params._desc_size==256)  _transform2<L2_avx_8w>(features,level,result,result2);//specific for surf 256 bytes
-            else  _transform2<L2_avx_generic>(features,level,result,result2);//any other
-        }
-        if( cpu_info->isSafeSSE() && _params._aligment%16==0){//SSE version
-            if ( _params._desc_size==256) _transform2<L2_sse3_16w>(features,level,result,result2);//specific for surf 256 bytes
-            else _transform2<L2_se3_generic>(features,level,result,result2);//any other
-        }
-        //generic version
-        _transform2<L2_generic>(features,level,result,result2);
-    }
-    else throw std::runtime_error("Vocabulary::transform invalid feature type. Should be CV_8UC1 or CV_32FC1");
-
-}
-
-fBow Vocabulary::transform(const cv::Mat &features)
+void Vocabulary::transform(const cv::Mat& features, BowVector& result)
 {
     if (features.rows==0) throw std::runtime_error("Vocabulary::transform No input data");
     if (features.type()!=_params._desc_type) throw std::runtime_error("Vocabulary::transform features are of different type than vocabulary");
@@ -100,33 +89,40 @@ fBow Vocabulary::transform(const cv::Mat &features)
         cpu_info=std::make_shared<cpu>();
         cpu_info->detect_host();
     }
-    fBow result;
+
     //decide the version to employ according to the type of features, aligment and cpu capabilities
     if (_params._desc_type==CV_8UC1){
         //orb
         if (cpu_info->HW_x64){
             if (_params._desc_size==32)
-                result=_transform<L1_32bytes>(features);
+                _transform<L1_32bytes>(features, result);
             //full akaze
             else if( _params._desc_size==61 && _params._aligment%8==0)
-                result=_transform<L1_61bytes>(features);
+                _transform<L1_61bytes>(features, result);
             //generic
             else
-                result=_transform<L1_x64>(features );
+                _transform<L1_x64>(features, result);
+        } else {
+            _transform<L1_x32>(features, result);
         }
-        else  result=  _transform<L1_x32>(features );
     }
     else if(features.type()==CV_32FC1){
         if( cpu_info->isSafeAVX() && _params._aligment%32==0){ //AVX version
-            if ( _params._desc_size==256) result= _transform<L2_avx_8w>(features);//specific for surf 256 bytes
-            else result= _transform<L2_avx_generic>(features);//any other
+            if ( _params._desc_size==256){
+                _transform<L2_avx_8w>(features, result);//specific for surf 256 bytes
+            } else {
+                _transform<L2_avx_generic>(features, result);//any other
+            }
         }
         if( cpu_info->isSafeSSE() && _params._aligment%16==0){//SSE version
-            if ( _params._desc_size==256) result= _transform<L2_sse3_16w>(features);//specific for surf 256 bytes
-            else result=_transform<L2_se3_generic>(features);//any other
+            if ( _params._desc_size==256){
+                _transform<L2_sse3_16w>(features, result);//specific for surf 256 bytes
+            } else {
+                _transform<L2_se3_generic>(features, result);//any other
+            }
         }
         //generic version
-        result=_transform<L2_generic>(features);
+        _transform<L2_generic>(features, result);
     }
     else throw std::runtime_error("Vocabulary::transform invalid feature type. Should be CV_8UC1 or CV_32FC1");
 
@@ -140,13 +136,207 @@ fBow Vocabulary::transform(const cv::Mat &features)
         double inv_norm = 1./sqrt(norm);
         for(auto  &e:result) e.second*=inv_norm ;
     }
-    return result;
+
+}
+
+void Vocabulary::transform(const cv::Mat& features, BowVector& result, FeatureVector& fv, int level)
+{
+    if (features.rows==0) throw std::runtime_error("Vocabulary::transform No input data");
+    if (features.type()!=_params._desc_type) throw std::runtime_error("Vocabulary::transform features are of different type than vocabulary");
+    if (features.cols *  features.elemSize() !=size_t(_params._desc_size)) throw std::runtime_error("Vocabulary::transform features are of different size than the vocabulary ones");
+
+    //get host info to decide the version to execute
+    if (!cpu_info){
+        cpu_info=std::make_shared<cpu>();
+        cpu_info->detect_host();
+    }
+
+    //decide the version to employ according to the type of features, aligment and cpu capabilities
+    if (_params._desc_type==CV_8UC1){
+        //orb
+        if (cpu_info->HW_x64){
+            if (_params._desc_size == 32){
+                std::cout << "HERE" << std::endl;
+                _transform<L1_32bytes>(features, result, fv, level);
+            } else if( _params._desc_size==61 && _params._aligment%8==0){
+                std::cout << "HERE2" << std::endl;
+                _transform<L1_61bytes>(features, result, fv, level);
+            } else {
+                std::cout << "HERE3" << std::endl;
+                _transform<L1_x64>(features, result, fv, level);
+            }
+        } else {
+            _transform<L1_x32>(features, result, fv, level);
+        }
+    }
+    else if(features.type()==CV_32FC1){
+        std::cout << "FLOAT" << std::endl;
+        if( cpu_info->isSafeAVX() && _params._aligment%32==0){ //AVX version
+            if ( _params._desc_size==256){
+                _transform<L2_avx_8w>(features, result, fv, level);//specific for surf 256 bytes
+            } else {
+                _transform<L2_avx_generic>(features, result, fv, level);//any other
+            }
+        }
+        if( cpu_info->isSafeSSE() && _params._aligment%16==0){//SSE version
+            if ( _params._desc_size==256){
+                _transform<L2_sse3_16w>(features, result, fv, level);//specific for surf 256 bytes
+            } else {
+                _transform<L2_se3_generic>(features, result, fv, level);//any other
+            }
+        }
+        //generic version
+        _transform<L2_generic>(features, result, fv, level);
+    }
+    else throw std::runtime_error("Vocabulary::transform invalid feature type. Should be CV_8UC1 or CV_32FC1");
+
+    std::cout << "Result " << result.size() << std::endl;
+    for (auto& e : result){
+        std::cout << e.first << " " << e.second << std::endl;
+    }
+    ///now, normalize
+    //L2
+    double norm=0;
+    for(auto  e:result) norm += e.second * e.second;
+
+    if(norm > 0.0)
+    {
+        double inv_norm = 1./sqrt(norm);
+        for(auto  &e:result) e.second*=inv_norm ;
+    }
+
+    std::cout << "NORM = " << norm << std::endl;
+
+}
+
+void Vocabulary::transform(const std::vector<cv::Mat> features, BowVector& result)
+{
+    if (features.empty()) throw std::runtime_error("Vocabulary::transform No input data");
+    if (features[0].type()!=_params._desc_type) throw std::runtime_error("Vocabulary::transform features are of different type than vocabulary");
+    if (features[0].cols *  features[0].elemSize() !=size_t(_params._desc_size)) throw std::runtime_error("Vocabulary::transform features are of different size than the vocabulary ones");
+
+    //get host info to decide the version to execute
+    if (!cpu_info){
+        cpu_info=std::make_shared<cpu>();
+        cpu_info->detect_host();
+    }
+
+    //decide the version to employ according to the type of features, aligment and cpu capabilities
+    if (_params._desc_type==CV_8UC1){
+        //orb
+        if (cpu_info->HW_x64){
+            if (_params._desc_size==32)
+                _transform<L1_32bytes>(features, result);
+            //full akaze
+            else if( _params._desc_size==61 && _params._aligment%8==0)
+                _transform<L1_61bytes>(features, result);
+            //generic
+            else
+                _transform<L1_x64>(features, result);
+        } else {
+            _transform<L1_x32>(features, result);
+        }
+    }
+    else if(features[0].type()==CV_32FC1){
+        if( cpu_info->isSafeAVX() && _params._aligment%32==0){ //AVX version
+            if ( _params._desc_size==256){
+                _transform<L2_avx_8w>(features, result);//specific for surf 256 bytes
+            } else {
+                _transform<L2_avx_generic>(features, result);//any other
+            }
+        }
+        if( cpu_info->isSafeSSE() && _params._aligment%16==0){//SSE version
+            if ( _params._desc_size==256){
+                _transform<L2_sse3_16w>(features, result);//specific for surf 256 bytes
+            } else {
+                _transform<L2_se3_generic>(features, result);//any other
+            }
+        }
+        //generic version
+        _transform<L2_generic>(features, result);
+    }
+    else throw std::runtime_error("Vocabulary::transform invalid feature type. Should be CV_8UC1 or CV_32FC1");
+
+    ///now, normalize
+    //L2
+    double norm=0;
+    for(auto  e:result) norm += e.second * e.second;
+
+    if(norm > 0.0)
+    {
+        double inv_norm = 1./sqrt(norm);
+        for(auto  &e:result) e.second*=inv_norm ;
+    }
+
+}
+
+void Vocabulary::transform(const std::vector<cv::Mat> features, BowVector& result, FeatureVector& fv, int level)
+{
+    if (features.empty()) throw std::runtime_error("Vocabulary::transform No input data");
+    if (features[0].type()!=_params._desc_type) throw std::runtime_error("Vocabulary::transform features are of different type than vocabulary");
+    if (features[0].cols *  features[0].elemSize() !=size_t(_params._desc_size)) throw std::runtime_error("Vocabulary::transform features are of different size than the vocabulary ones");
+
+    //get host info to decide the version to execute
+    if (!cpu_info){
+        cpu_info=std::make_shared<cpu>();
+        cpu_info->detect_host();
+    }
+
+    //decide the version to employ according to the type of features, aligment and cpu capabilities
+    if (features[0].type() == CV_8UC1){
+        //orb
+        if (cpu_info->HW_x64){
+            if (_params._desc_size==32)
+                _transform<L1_32bytes>(features, result, fv, level);
+            //full akaze
+            else if( _params._desc_size==61 && _params._aligment%8==0)
+                _transform<L1_61bytes>(features, result, fv, level);
+            //generic
+            else
+                _transform<L1_x64>(features, result, fv, level);
+        } else {
+            _transform<L1_x32>(features, result, fv, level);
+        }
+    }
+    else if(features[0].type() == CV_32F){
+        if( cpu_info->isSafeAVX() && _params._aligment%32==0){ //AVX version
+            if ( _params._desc_size==256){
+                _transform<L2_avx_8w>(features, result, fv, level);//specific for surf 256 bytes
+            } else {
+                _transform<L2_avx_generic>(features, result, fv, level);//any other
+            }
+        }
+        if( cpu_info->isSafeSSE() && _params._aligment%16==0){//SSE version
+            if ( _params._desc_size==256){
+                _transform<L2_sse3_16w>(features, result, fv, level);//specific for surf 256 bytes
+            } else {
+                _transform<L2_se3_generic>(features, result, fv, level);//any other
+            }
+        }
+        //generic version
+        _transform<L2_generic>(features, result, fv, level);
+    }
+    else throw std::runtime_error("Vocabulary::transform invalid feature type. Should be CV_8UC1 or CV_32FC1");
+
+    ///now, normalize
+    //L2
+    double norm=0;
+    for(auto  e:result) norm += e.second * e.second;
+
+    if(norm > 0.0)
+    {
+        double inv_norm = 1./sqrt(norm);
+        for(auto  &e:result) e.second*=inv_norm ;
+    }
+
 }
 
 
 
 void Vocabulary::clear()
 {
+    // if (_data!=0) AlignedFree(_data);
+    // _data = 0;
     _data.reset();
     memset(&_params,0,sizeof(_params));
     _params._desc_name_[0]='\0';
@@ -173,28 +363,37 @@ void Vocabulary::toStream(std::ostream &str)const{
     uint64_t sig=55824124;
     str.write((char*)&sig,sizeof(sig));
     //save string
-    str.write((char*)&_params,sizeof(params));
+    str.write((char*)&_params,sizeof(Params));
+    //str.write(_data, _params._total_size);
     str.write(_data.get(), _params._total_size);
 }
 
 void Vocabulary::fromStream(std::istream &str)
 {
+    //if (_data!=0) AlignedFree (_data);
+    _data.reset();
+
     uint64_t sig;
     str.read((char*)&sig,sizeof(sig));
     if (sig!=55824124) throw std::runtime_error("Vocabulary::fromStream invalid signature");
     //read string
-    str.read((char*)&_params,sizeof(params));
+    str.read((char*)&_params,sizeof(Params));
+    //_data = static_cast<char*>(AlignedAlloc(_params._aligment, _params._total_size));
     _data = std::unique_ptr<char[], decltype(&AlignedFree)>((char*)AlignedAlloc(_params._aligment, _params._total_size), &AlignedFree);
-    if (_data.get() == nullptr) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");
+    _scoring_type = ScoringType::L2_NORM;
+
+    if (_data == nullptr) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");
     str.read(_data.get(), _params._total_size);
+    // if (_data == 0) throw std::runtime_error("Vocabulary::fromStream Could not allocate data");
+    // str.read(_data, _params._total_size);
 }
 
-double fBow::score (const  fBow &v1,const fBow &v2){
+double BowVector::score(const  BowVector &v1, const BowVector &v2){
 
 
-    fBow::const_iterator v1_it, v2_it;
-    const fBow::const_iterator v1_end = v1.end();
-    const fBow::const_iterator v2_end = v2.end();
+    BowVector::const_iterator v1_it, v2_it;
+    const BowVector::const_iterator v1_end = v1.end();
+    const BowVector::const_iterator v2_end = v2.end();
 
     v1_it = v1.begin();
     v2_it = v2.begin();
@@ -242,7 +441,7 @@ double fBow::score (const  fBow &v1,const fBow &v2){
 
     return score;
 }
-uint64_t fBow::hash()const{
+uint64_t BowVector::hash()const{
     uint64_t seed = 0;
     for(auto e:*this)
         seed^= e.first +  int(e.second*1000)+ 0x9e3779b9 + (seed << 6) + (seed >> 2);
@@ -254,17 +453,20 @@ uint64_t fBow::hash()const{
 uint64_t Vocabulary::hash()const{
 
     uint64_t seed = 0;
-    for(uint64_t i=0;i<_params._total_size;i++)
+    for(uint64_t i=0;i<_params._total_size;i++){
         seed^= _data.get()[i] + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        //seed^= _data[i] + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+
     return seed;
 }
-void fBow::toStream(std::ostream &str) const   {
+void BowVector::toStream(std::ostream &str) const   {
     uint32_t _size=size();
     str.write((char*)&_size,sizeof(_size));
     for(const auto & e:*this)
         str.write((char*)&e,sizeof(e));
 }
-void fBow::fromStream(std::istream &str)    {
+void BowVector::fromStream(std::istream &str)    {
     clear();
     uint32_t _size;
     str.read((char*)&_size,sizeof(_size));
@@ -275,7 +477,7 @@ void fBow::fromStream(std::istream &str)    {
     }
 }
 
-void fBow2::toStream(std::ostream &str) const   {
+void FeatureVector::toStream(std::ostream &str) const   {
     uint32_t _size=size();
     str.write((char*)&_size,sizeof(_size));
     for(const auto &e:*this){
@@ -287,7 +489,7 @@ void fBow2::toStream(std::ostream &str) const   {
     }
 }
 
-void fBow2::fromStream(std::istream &str)    {
+void FeatureVector::fromStream(std::istream &str)    {
     uint32_t _sizeMap,_sizeVec;
     std::vector<uint32_t> vec;
     uint32_t key;
@@ -303,11 +505,8 @@ void fBow2::fromStream(std::istream &str)    {
     }
 }
 
-uint64_t fBow2::hash()const{
-
-
+uint64_t FeatureVector::hash()const{
     uint64_t seed = 0;
-
 
     for(const auto &e:*this){
         seed^= e.first + 0x9e3779b9 + (seed << 6) + (seed >> 2);

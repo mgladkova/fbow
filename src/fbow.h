@@ -1,5 +1,8 @@
+#pragma once
+
 #ifndef _FBOW_VOCABULARY_H
 #define _FBOW_VOCABULARY_H
+
 #include "fbow_exports.h"
 #include <iostream>
 #include <opencv2/core/core.hpp>
@@ -10,6 +13,7 @@
 #include <immintrin.h>
 #endif
 #include "cpu.h"
+
 namespace fbow{
 
 //float initialized to zero.
@@ -22,7 +26,7 @@ struct FBOW_API _float{
 
 /**Bag of words
  */
-struct FBOW_API fBow:std::map<uint32_t,_float>{
+struct FBOW_API BowVector : std::map<NodeId,_float>{
 
     void toStream(std::ostream &str) const  ;
     void fromStream(std::istream &str)    ;
@@ -30,14 +34,14 @@ struct FBOW_API fBow:std::map<uint32_t,_float>{
     //returns a hash identifying this
     uint64_t hash()const;
     //returns the similitude score between to image descriptors using L2 norm
-    static double score(const fBow &v1, const fBow &v2);
+    static double score(const BowVector &v1, const BowVector &v2);
 
 };
 
 
 //Bag of words with augmented information. For each word, keeps information about the indices of the elements that have been classified into the word
 //it is computed at the desired level
-struct FBOW_API fBow2:std::map<uint32_t,std::vector<uint32_t>> {
+struct FBOW_API FeatureVector : std::map<NodeId,std::vector<uint32_t>> {
 
     void toStream(std::ostream &str) const   ;
 
@@ -70,7 +74,7 @@ class FBOW_API Vocabulary
      *(ptr-1)=(unsigned char)off; //save in prev, the offset  to properly remove it
      return ptr;
  }
-  
+
      static inline void AlignedFree(void *ptr){
          if(ptr==nullptr)return;
          unsigned char *uptr=(unsigned char *)ptr;
@@ -78,19 +82,27 @@ class FBOW_API Vocabulary
          uptr-=off;
          std::free(uptr);
      }
-  
+
  // using Data_ptr = std::unique_ptr<char[], decltype(&AlignedFree)>;
 
     friend class VocabularyCreator;
 
  public:
 
-    Vocabulary(): _data((char*)nullptr,&AlignedFree){}
-    Vocabulary(Vocabulary&&) = default;
+    Vocabulary() : _data((char*)nullptr,&AlignedFree){
+    //Vocabulary() {
+        _scoring_type = ScoringType::L2_NORM;
+    }
+    ~Vocabulary();
+	Vocabulary(const Vocabulary& voc);
+	Vocabulary& operator = (const Vocabulary &voc);
 
     //transform the features stored as rows in the returned BagOfWords
-    fBow transform(const cv::Mat &features);
-    void transform(const cv::Mat &features, int level,fBow &result,fBow2&result2);
+    void transform(const cv::Mat& features, BowVector &result);
+    void transform(const cv::Mat& features, BowVector &result, FeatureVector &fv, int level);
+
+    void transform(const std::vector<cv::Mat> features, BowVector &result);
+    void transform(const std::vector<cv::Mat> features, BowVector &result, FeatureVector &fv, int level);
 
 
     //loads/saves from a file
@@ -105,10 +117,13 @@ class FBOW_API Vocabulary
     uint32_t getDescSize()const{return _params._desc_size;}
     //returns the descriptor name
     std::string getDescName() const{ return _params._desc_name_;}
+    //scoring type for queries
+    ScoringType getScoringType() const { return _scoring_type; }
     //returns the branching factor (number of children per node)
     uint32_t getK()const{return _params._m_k;}
     //indicates whether this object is valid
-    bool isValid()const{return _data.get()!=nullptr;}
+    bool isValid()const{return _data.get() != nullptr; }
+    //bool isValid()const{return _data != 0; }
     //total number of blocks
     size_t size()const{return _params._nblocks;}
     //removes all data
@@ -117,21 +132,27 @@ class FBOW_API Vocabulary
     uint64_t hash()const;
 
 private:
-     void  setParams(  int aligment,int k,int desc_type,int desc_size, int nblocks,std::string desc_name) ;
-    struct params{
-        char _desc_name_[50];//descriptor name. May be empty
-        uint32_t _aligment=0,_nblocks=0 ;//memory aligment and total number of blocks
-        uint64_t _desc_size_bytes_wp=0;//size of the descriptor(includes padding)
-        uint64_t _block_size_bytes_wp=0;//size of a block   (includes padding)
-        uint64_t _feature_off_start=0;//within a block, where the features start
-        uint64_t _child_off_start=0;//within a block,where the children offset part starts
-        uint64_t _total_size=0;
-        int32_t _desc_type=0,_desc_size=0;//original descriptor types and sizes (without padding)
-        uint32_t _m_k=0;//number of children per node
+     void  setParams(int aligment,int k,int desc_type,
+                    int desc_size, int nblocks, std::string desc_name,
+                    ScoringType scoring_type);
+    class Params{
+        public:
+            char _desc_name_[50];//descriptor name. May be empty
+            uint32_t _aligment=0,_nblocks=0 ;//memory aligment and total number of blocks
+            uint64_t _desc_size_bytes_wp=0;//size of the descriptor(includes padding)
+            uint64_t _block_size_bytes_wp=0;//size of a block   (includes padding)
+            uint64_t _feature_off_start=0;//within a block, where the features start
+            uint64_t _child_off_start=0;//within a block,where the children offset part starts
+            uint64_t _total_size=0;
+            int32_t _desc_type=0,_desc_size=0;//original descriptor types and sizes (without padding)
+            uint32_t _m_k=0;//number of children per node
+            //ScoringType _scoring_type;
     };
-    params _params;
-    std::unique_ptr<char[], decltype(&AlignedFree)> _data;
 
+    Params _params;
+    std::unique_ptr<char[], decltype(&AlignedFree)> _data;
+    //char* _data = 0;
+    ScoringType _scoring_type = ScoringType::L2_NORM;
 
     //structure represeting a information about node in a block
     struct block_node_info{
@@ -183,9 +204,15 @@ private:
         inline void setParentId(uint32_t pid){*(((uint32_t*)(_blockstart))+1)=pid;}
         inline uint32_t  getParentId(){ return *(((uint32_t*)(_blockstart))+1);}
 
-        inline  block_node_info * getBlockNodeInfo(int i){  return (block_node_info *)(_blockstart+_child_off_start+i*sizeof(block_node_info)); }
-        inline  void setFeature(int i,const cv::Mat &feature){memcpy( _blockstart+_feature_off_start+i*_desc_size_bytes_wp,feature.ptr<char>(0),feature.elemSize1()*feature.cols); }
-        inline  void getFeature(int i,cv::Mat  feature){    memcpy( feature.ptr<char>(0), _blockstart+_feature_off_start+i*_desc_size_bytes,_desc_size_bytes ); }
+        inline  block_node_info * getBlockNodeInfo(int i){
+            return (block_node_info *)(_blockstart+_child_off_start+i*sizeof(block_node_info));
+        }
+        inline  void setFeature(int i,const cv::Mat &feature){
+            memcpy( _blockstart+_feature_off_start+i*_desc_size_bytes_wp,feature.ptr<char>(0),feature.elemSize1()*feature.cols);
+        }
+        inline  void getFeature(int i,cv::Mat  feature){
+            memcpy( feature.ptr<char>(0), _blockstart+_feature_off_start+i*_desc_size_bytes,_desc_size_bytes );
+        }
         template<typename T> inline  T*getFeature(int i){return (T*) (_blockstart+_feature_off_start+i*_desc_size_bytes_wp);}
         char *_blockstart;
         uint64_t _desc_size_bytes=0;//size of the descriptor(without padding)
@@ -196,9 +223,18 @@ private:
 
 
     //returns a block structure pointing at block b
-    inline Block getBlock(uint32_t b) { assert(_data.get() != nullptr); assert(b < _params._nblocks); return Block(_data.get() + b * _params._block_size_bytes_wp, _params._desc_size, _params._desc_size_bytes_wp, _params._feature_off_start, _params._child_off_start); }
+    inline Block getBlock(uint32_t b) {
+         assert(_data.get() != nullptr); assert(b < _params._nblocks);
+         return Block(_data.get() + b * _params._block_size_bytes_wp, _params._desc_size, _params._desc_size_bytes_wp, _params._feature_off_start, _params._child_off_start);
+        // assert(_data != 0); assert(b < _params._nblocks);
+        // return Block(_data + b * _params._block_size_bytes_wp, _params._desc_size, _params._desc_size_bytes_wp, _params._feature_off_start, _params._child_off_start);
+    }
+
     //given a block already create with getBlock, moves it to point to block b
-    inline void setBlock(uint32_t b, Block &block) { block._blockstart = _data.get() + b * _params._block_size_bytes_wp; }
+    inline void setBlock(uint32_t b, Block &block) {
+        //block._blockstart = _data + b * _params._block_size_bytes_wp;
+        block._blockstart = _data.get() + b * _params._block_size_bytes_wp;
+    }
 
     //information about the cpu so that mmx,sse or avx extensions can be employed
     std::shared_ptr<cpu> cpu_info;
@@ -364,54 +400,135 @@ private:
          }
      };
 
+    template<typename Computer>
+    void _transform(const cv::Mat& features, BowVector &result){
+        Computer comp;
+        comp.setParams(_params._desc_size,_params._desc_size_bytes_wp);
+        using DType=typename Computer::DType;//distance type
+        using TData=typename Computer::TData;//data type
+
+        std::pair<DType,uint32_t> best_dist_idx(std::numeric_limits<uint32_t>::max(),0);//minimum distance found
+        block_node_info *bn_info;
+        for(int cur_feature=0;cur_feature<features.rows;cur_feature++){
+            comp.startwithfeature(features.ptr<TData>(cur_feature));
+            //ensure feature is in a
+            Block c_block=getBlock(0);
+              //copy to another structure and add padding with zeros
+            do{
+                //given the current block, finds the node with minimum distance
+                best_dist_idx.first=std::numeric_limits<uint32_t>::max();
+                for(int cur_node=0;cur_node<c_block.getN();cur_node++)
+                {
+                    DType d= comp.computeDist(c_block.getFeature<TData>(cur_node));
+                    if (d<best_dist_idx.first) best_dist_idx=std::make_pair(d,cur_node);
+                }
+                bn_info=c_block.getBlockNodeInfo(best_dist_idx.second);
+                //if the node is leaf get word id and weight,else go to its children
+                if ( bn_info->isleaf())
+                    result[bn_info->getId()]+=bn_info->weight;//if the node is leaf get word id and weight
+                else setBlock(bn_info->getId(),c_block);//go to its children
+            }while( !bn_info->isleaf() && bn_info->getId()!=0);
+        }
+        std::cout << "Feature.rows = " << features.rows << std::endl;
+        std::cout << "Best index = " << best_dist_idx.first << "  " << best_dist_idx.second << std::endl;
+    }
 
      template<typename Computer>
-     fBow  _transform(const cv::Mat &features){
-         Computer comp;
-         comp.setParams(_params._desc_size,_params._desc_size_bytes_wp);
-         using DType=typename Computer::DType;//distance type
-         using TData=typename Computer::TData;//data type
+     void  _transform(const cv::Mat& features, BowVector &r1, FeatureVector& fv, uint32_t storeLevel){
+        Computer comp;
+        comp.setParams(_params._desc_size,_params._desc_size_bytes_wp);
+        using DType=typename Computer::DType;//distance type
+        using TData=typename Computer::TData;//data type
 
-         fBow  result;
-         std::pair<DType,uint32_t> best_dist_idx(std::numeric_limits<uint32_t>::max(),0);//minimum distance found
-         block_node_info *bn_info;
-         for(int cur_feature=0;cur_feature<features.rows;cur_feature++){
-             comp.startwithfeature(features.ptr<TData>(cur_feature));
-             //ensure feature is in a
-             Block c_block=getBlock(0);
-               //copy to another structure and add padding with zeros
-             do{
-                 //given the current block, finds the node with minimum distance
-                 best_dist_idx.first=std::numeric_limits<uint32_t>::max();
-                 for(int cur_node=0;cur_node<c_block.getN();cur_node++)
-                 {
-                     DType d= comp.computeDist(c_block.getFeature<TData>(cur_node));
-                     if (d<best_dist_idx.first) best_dist_idx=std::make_pair(d,cur_node);
-                 }
-                 bn_info=c_block.getBlockNodeInfo(best_dist_idx.second);
-                 //if the node is leaf get word id and weight,else go to its children
-                 if ( bn_info->isleaf()){//if the node is leaf get word id and weight
-                      result[bn_info->getId()]+=bn_info->weight;
-                  }
-                 else setBlock(bn_info->getId(),c_block);//go to its children
-             }while( !bn_info->isleaf() && bn_info->getId()!=0);
-         }
-         return result;
-     }
+        r1.clear();
+        fv.clear();
+        std::pair<DType,uint32_t> best_dist_idx(std::numeric_limits<uint32_t>::max(),0);//minimum distance found
+        block_node_info *bn_info;
+        int nbits=ceil(log2(_params._m_k));
+
+        for(int cur_feature = 0; cur_feature < features.rows; cur_feature++){
+            comp.startwithfeature(features.ptr<TData>(cur_feature));
+            //ensure feature is in a
+            Block c_block=getBlock(0);
+            uint32_t level=0;//current level of recursion
+            uint32_t curNode=0;//id of the current node of the tree
+            //copy to another structure and add padding with zeros
+            do{
+                //given the current block, finds the node with minimum distance
+                best_dist_idx.first=std::numeric_limits<uint32_t>::max();
+                for(int cur_node=0;cur_node<c_block.getN();cur_node++)
+                {
+                    DType d= comp.computeDist(c_block.getFeature<TData>(cur_node));
+                    if (d<best_dist_idx.first) best_dist_idx=std::make_pair(d,cur_node);
+                }
+                if( level==storeLevel)//if reached level,save
+                    fv[curNode].push_back( cur_feature);
+
+                bn_info=c_block.getBlockNodeInfo(best_dist_idx.second);
+                //if the node is leaf get weight,else go to its children
+                if ( bn_info->isleaf()){
+                    r1[bn_info->getId()]+=bn_info->weight;
+                    if( level<storeLevel)//store level not reached, save now
+                        fv[curNode].push_back( cur_feature);
+                break;
+                }
+                else setBlock(bn_info->getId(),c_block);//go to its children
+                curNode= curNode<<nbits;
+                curNode|=best_dist_idx.second;
+                level++;
+            }while( !bn_info->isleaf() && bn_info->getId()!=0);
+        }
+
+        std::cout << "Feature.rows = " << features.rows << std::endl;
+        std::cout << "Best index = " << best_dist_idx.first << "  " << best_dist_idx.second << std::endl;
+    }
+
+    template<typename Computer>
+    void _transform(const std::vector<cv::Mat> features, BowVector &result){
+        Computer comp;
+        comp.setParams(_params._desc_size,_params._desc_size_bytes_wp);
+        using DType=typename Computer::DType;//distance type
+        using TData=typename Computer::TData;//data type
+
+        std::pair<DType,uint32_t> best_dist_idx(std::numeric_limits<uint32_t>::max(),0);//minimum distance found
+        block_node_info *bn_info;
+        for(unsigned int cur_feature = 0; cur_feature < features.size(); cur_feature++){
+            comp.startwithfeature(features[cur_feature].ptr<TData>(0));
+            //ensure feature is in a
+            Block c_block=getBlock(0);
+              //copy to another structure and add padding with zeros
+            do{
+                //given the current block, finds the node with minimum distance
+                best_dist_idx.first=std::numeric_limits<uint32_t>::max();
+                for(int cur_node=0;cur_node<c_block.getN();cur_node++)
+                {
+                    DType d= comp.computeDist(c_block.getFeature<TData>(cur_node));
+                    if (d<best_dist_idx.first) best_dist_idx=std::make_pair(d,cur_node);
+                }
+                bn_info=c_block.getBlockNodeInfo(best_dist_idx.second);
+                //if the node is leaf get word id and weight,else go to its children
+                if ( bn_info->isleaf())
+                    result[bn_info->getId()]+=bn_info->weight;//if the node is leaf get word id and weight
+                else setBlock(bn_info->getId(),c_block);//go to its children
+            }while( !bn_info->isleaf() && bn_info->getId()!=0);
+        }
+    }
+
+
      template<typename Computer>
-     void  _transform2(const cv::Mat &features,uint32_t storeLevel,fBow &r1,fBow2 &r2){
+     void  _transform(const std::vector<cv::Mat> features, BowVector &r1, FeatureVector& fv, uint32_t storeLevel){
          Computer comp;
               comp.setParams(_params._desc_size,_params._desc_size_bytes_wp);
               using DType=typename Computer::DType;//distance type
               using TData=typename Computer::TData;//data type
 
               r1.clear();
-              r2.clear();
+              fv.clear();
               std::pair<DType,uint32_t> best_dist_idx(std::numeric_limits<uint32_t>::max(),0);//minimum distance found
               block_node_info *bn_info;
               int nbits=ceil(log2(_params._m_k));
-              for(int cur_feature=0;cur_feature<features.rows;cur_feature++){
-                  comp.startwithfeature(features.ptr<TData>(cur_feature));
+              for(unsigned int cur_feature=0; cur_feature < features.size(); cur_feature++){
+                  comp.startwithfeature(features[cur_feature].ptr<TData>(0));
                   //ensure feature is in a
                   Block c_block=getBlock(0);
                   uint32_t level=0;//current level of recursion
@@ -420,20 +537,20 @@ private:
                   do{
                       //given the current block, finds the node with minimum distance
                       best_dist_idx.first=std::numeric_limits<uint32_t>::max();
-                      for(int cur_node=0;cur_node<c_block.getN();cur_node++)
+                      for(int cur_node=0; cur_node<c_block.getN(); cur_node++)
                       {
                           DType d= comp.computeDist(c_block.getFeature<TData>(cur_node));
                           if (d<best_dist_idx.first) best_dist_idx=std::make_pair(d,cur_node);
                       }
                       if( level==storeLevel)//if reached level,save
-                          r2[curNode].push_back( cur_feature);
+                          fv[curNode].push_back( cur_feature);
 
                       bn_info=c_block.getBlockNodeInfo(best_dist_idx.second);
                       //if the node is leaf get weight,else go to its children
                       if ( bn_info->isleaf()){
                           r1[bn_info->getId()]+=bn_info->weight;
                           if( level<storeLevel)//store level not reached, save now
-                              r2[curNode].push_back( cur_feature);
+                              fv[curNode].push_back( cur_feature);
                         break;
                       }
                       else setBlock(bn_info->getId(),c_block);//go to its children
@@ -443,7 +560,6 @@ private:
                   }while( !bn_info->isleaf() && bn_info->getId()!=0);
               }
       }
-
 };
 
 

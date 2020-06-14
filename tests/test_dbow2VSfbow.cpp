@@ -105,11 +105,12 @@ int main(int argc,char**argv){
         fbow_load=double(std::chrono::duration_cast<std::chrono::milliseconds>(t_end-t_start).count());
         cout<<"load time="<<fbow_load<<" ms"<<endl;
 
-        {    cout<<"processing image 1000 times"<<endl;
-            fbow::fBow vv;
+        {
+            cout<<"processing image 1000 times"<<endl;
             t_start=std::chrono::high_resolution_clock::now();
+            fbow::BowVector vv;
             for(int i=0;i<1000;i++){
-                vv=fvoc.transform(features[0]);
+                fvoc.transform(features[i], vv);
             }
             t_end=std::chrono::high_resolution_clock::now();
 

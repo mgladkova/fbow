@@ -1,3 +1,5 @@
+#pragma once
+
 #ifndef _FBOW_VOCABULARYCREATOR_H
 #define _FBOW_VOCABULARYCREATOR_H
 #include <iostream>
@@ -22,7 +24,9 @@ class FBOW_API VocabularyCreator
 public:
     struct Params{
         Params(){}
-        Params(uint32_t K ,int l=-1,uint32_t Nthreads=1,int MaxIters=-2):k(K),L(l),nthreads(Nthreads){
+        Params(uint32_t K ,int l = -1,
+               uint32_t Nthreads=1,int MaxIters=-2,
+               ScoringType scoreType = ScoringType::L2_NORM):k(K),L(l),nthreads(Nthreads),scoring_type(scoreType){
             if ( MaxIters!=-2) maxIters=MaxIters;
         }
         uint32_t k=32;
@@ -30,6 +34,7 @@ public:
         uint32_t nthreads=1;
         int maxIters=11;
         bool verbose=false;
+        ScoringType scoring_type;
     };
 
     //create this from a set of features
@@ -38,8 +43,8 @@ public:
     //k braching factor
     //L maximum tree depth
 
-    void create(fbow::Vocabulary &Voc, const std::vector<cv::Mat> &features, const std::string &desc_name, Params params);
-    void create(fbow::Vocabulary &Voc, const cv::Mat &features, const std::string &desc_name, Params params);
+    void create(fbow::Vocabulary& Voc, const std::vector<cv::Mat> &features, const std::string &desc_name, Params params);
+    void create(fbow::Vocabulary& Voc, const cv::Mat &features, const std::string &desc_name, Params params);
 private:
     Params _params;
     struct feature_info{
@@ -151,8 +156,8 @@ private:
 
         }
 
-        uint32_t id=std::numeric_limits<uint32_t>::max();//id of this node in the tree
-        uint32_t parent=std::numeric_limits<uint32_t>::max();//id of the parent node
+        uint32_t id;//id of this node in the tree
+        uint32_t parent;//id of the parent node
         cv::Mat feature;//feature of this node
         //index of the feature this node represent(only if leaf and it stop because not enough points to create a new leave.
         //In case the node is a terminal point, but has many points beloging to its cluster, then, this is not set.
@@ -245,7 +250,7 @@ private:
 
 
     //------------
-    void convertIntoVoc(Vocabulary &Voc, std::string dec_name);
+    void convertIntoVoc(Vocabulary& Voc, std::string dec_name);
 
 
     /**

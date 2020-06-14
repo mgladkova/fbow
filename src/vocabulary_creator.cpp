@@ -9,14 +9,14 @@ inline int omp_get_thread_num(){return 0;}
 using namespace std;
 namespace fbow{
 
-void VocabularyCreator::create(fbow::Vocabulary &Voc, const  cv::Mat  &features, const std::string &desc_name, Params params)
+void VocabularyCreator::create(fbow::Vocabulary& Voc, const  cv::Mat  &features, const std::string &desc_name, Params params)
 {
     std::vector<cv::Mat> vfeatures(1);
     vfeatures[0]=features;
     create(Voc,vfeatures,desc_name,params);
 }
 
-void VocabularyCreator::create(fbow::Vocabulary &Voc, const std::vector<cv::Mat> &features, const string &desc_name, Params params){
+void VocabularyCreator::create(fbow::Vocabulary& Voc, const std::vector<cv::Mat> &features, const string &desc_name, Params params){
     assert(features.size()>0);
     assert(features[0].cols>0);
     //select the funciton
@@ -332,7 +332,7 @@ cv::Mat VocabularyCreator::meanValue_float( const std::vector<uint32_t>  &indice
 }
 
 
-void VocabularyCreator::convertIntoVoc(Vocabulary &Voc,  std::string  desc_name){
+void VocabularyCreator::convertIntoVoc(Vocabulary& Voc,  std::string  desc_name){
 
     //look for leafs and store
     //now, create the blocks
@@ -354,7 +354,7 @@ void VocabularyCreator::convertIntoVoc(Vocabulary &Voc,  std::string  desc_name)
     Voc.clear();
     int aligment=8;
     if (_descType==CV_32F) aligment=32;
-    Voc.setParams(aligment,_params.k,_descType,_descNBytes,nonLeafNodes,desc_name);
+    Voc.setParams(aligment,_params.k,_descType,_descNBytes,nonLeafNodes,desc_name, ScoringType::L2_NORM);
 
     //lets start
     for(auto &node:TheTree.getNodes()){
