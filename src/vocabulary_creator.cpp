@@ -428,8 +428,10 @@ void VocabularyCreator::convertIntoVoc(Vocabulary& Voc,  std::string  desc_name)
             else nodeid_blockid.insert(std::make_pair(node.first,nonLeafNodes++));
 
     }
-    // std::cout << "Number of leaves = " << nLeafNodes << std::endl;
-    // std::cout << "Number of nodes = " << TheTree.getNodes().size() << std::endl;
+    std::cout << "Number of leaves = " << nLeafNodes << std::endl;
+    std::cout << "Number of non-leaves = " << nonLeafNodes << std::endl;
+    std::cout << "Number of nodes = " << TheTree.getNodes().size() << std::endl;
+    std::cout << "Number of features = " << _features.size() << std::endl;
     //determine the basic elements
     Voc.clear();
     int aligment=8;

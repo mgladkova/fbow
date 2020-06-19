@@ -6,7 +6,8 @@ namespace fbow {
 
 
 Database::Database(bool use_di, int di_levels): m_voc(nullptr), m_use_di(use_di),
-                                                m_dilevels(di_levels), m_nentries(0){}
+                                                m_dilevels(di_levels), m_nentries(0){
+}
 
 // --------------------------------------------------------------------------
 
@@ -26,7 +27,7 @@ Database::Database(const Database &db) : m_voc(nullptr){
 // --------------------------------------------------------------------------
 
 
-Database::Database(const std::string &filename): m_voc(nullptr){
+Database::Database(const std::string &filename, bool use_di, int di_levels) : m_voc(nullptr), m_use_di(use_di), m_dilevels(di_levels){
   load(filename);
 }
 
@@ -113,7 +114,7 @@ EntryId Database::add(const BowVector &v,
   for(vit = v.begin(); vit != v.end(); ++vit){
     const WordId& word_id = vit->first;
     const WordValue& word_weight = vit->second;
-
+    //std::cout << word_id << std::endl;
     IFRow& ifrow = m_ifile[word_id];
     ifrow.push_back(IFPair(entry_id, word_weight));
   }
@@ -208,7 +209,7 @@ void Database::query(const std::vector<cv::Mat> &features, QueryResults &ret,
 
 void Database::query(const BowVector &vec, QueryResults &ret,
                      int max_results, int max_id, ScoringType scoring_type) const {
-  ret.resize(0);
+  ret.clear();
 
   switch(scoring_type){
     case L1_NORM:
@@ -736,21 +737,170 @@ const FeatureVector& Database::retrieveFeatures
 
 // --------------------------------------------------------------------------
 
+void Database::save(const std::string &filename) const
+{
+  cv::FileStorage fs(filename.c_str(), cv::FileStorage::WRITE);
+  if(!fs.isOpened()) throw std::string("Could not open file ") + filename;
 
-void Database::save(const std::string &filename) const {
-  m_voc->saveToFile(filename);
+  save(fs, filename);
+}
+
+void Database::save(cv::FileStorage &fs, const std::string &name) const {
+  // Format YAML:
+  //   nEntries:
+  //   usingDI:
+  //   diLevels:
+  //   invertedIndex
+  //   [
+  //     [
+  //        {
+  //          imageId:
+  //          weight:
+  //        }
+  //     ]
+  //   ]
+  //   directIndex
+  //   [
+  //      [
+  //        {
+  //          nodeId:
+  //          features: [ ]
+  //        }
+  //      ]
+  //   ]
+
+  // invertedIndex[i] is for the i-th word
+  // directIndex[i] is for the i-th entry
+  // directIndex may be empty if not using direct index
+  //
+  // imageId's and nodeId's must be stored in ascending order
+  // (according to the construction of the indexes)
+  std::string voc_name = "voc_" + name;
+  m_voc->saveToFile(voc_name);
+
+  fs << "nEntries" << m_nentries;
+  fs << "usingDI" << (m_use_di ? 1 : 0);
+  fs << "diLevels" << m_dilevels;
+
+  fs << "invertedIndex" << "[";
+
+   for(auto iit = m_ifile.begin(); iit != m_ifile.end(); ++iit)
+  {
+    fs << "["; // word of IF
+    for(auto irit = iit->begin(); irit != iit->end(); ++irit){
+      fs << "{:"
+        << "imageId" << (int)irit->entry_id
+        << "weight" << irit->word_weight
+        << "}";
+    }
+    fs << "]"; // word of IF
+  }
+
+  fs << "]"; // invertedIndex
+
+
+  fs << "directIndex" << "[";
+
+   for(auto dit = m_dfile.begin(); dit != m_dfile.end(); ++dit)
+  {
+    fs << "["; // entry of DF
+
+    for(auto drit = dit->begin(); drit != dit->end(); ++drit)
+    {
+      NodeId nid = drit->first;
+      const std::vector<unsigned int>& features = drit->second;
+
+      // save info of last_nid
+      fs << "{";
+      fs << "nodeId" << (int)nid;
+      // msvc++ 2010 with opencv 2.3.1 does not allow FileStorage::operator<<
+      // with vectors of unsigned int
+      fs << "features" << "["
+        << *(const std::vector<int>*)(&features) << "]";
+      fs << "}";
+    }
+
+    fs << "]"; // entry of DF
+  }
+
+  fs << "]"; // directIndex
+
 }
 
 // --------------------------------------------------------------------------
 
 
 void Database::load(const std::string &filename){
+  cv::FileStorage fs(filename.c_str(), cv::FileStorage::READ);
+  if(!fs.isOpened()) throw std::string("Could not open file ") + filename;
+
+  load(fs, filename);
+}
+
+// --------------------------------------------------------------------------
+
+
+void Database::load(const cv::FileStorage &fs, const std::string &name){
   // load voc first
   // subclasses must instantiate m_voc before calling this ::load
-  if(m_voc == nullptr){
+  if(m_voc == nullptr)
     m_voc = std::shared_ptr<Vocabulary>(new Vocabulary());
+
+  std::string voc_name = "voc_" + name;
+  m_voc->readFromFile(voc_name);
+
+  // load database now
+  clear(); // resizes inverted file
+
+  cv::FileNode fdb = fs[name];
+
+  m_nentries = (int)fdb["nEntries"];
+  m_use_di = (int)fdb["usingDI"] != 0;
+  m_dilevels = (int)fdb["diLevels"];
+
+  cv::FileNode fn = fdb["invertedIndex"];
+  for(WordId wid = 0; wid < fn.size(); ++wid){
+    cv::FileNode fw = fn[wid];
+
+    for(unsigned int i = 0; i < fw.size(); ++i)
+    {
+      EntryId eid = (int)fw[i]["imageId"];
+      WordValue v = fw[i]["weight"];
+
+      m_ifile[wid].push_back(IFPair(eid, v));
+    }
   }
-  m_voc->readFromFile(filename);
+
+  if(m_use_di){
+    fn = fdb["directIndex"];
+
+    m_dfile.resize(fn.size());
+    assert(m_nentries == (int)fn.size());
+
+    FeatureVector::iterator dit;
+    for(EntryId eid = 0; eid < fn.size(); ++eid)
+    {
+      cv::FileNode fe = fn[eid];
+
+      m_dfile[eid].clear();
+      for(unsigned int i = 0; i < fe.size(); ++i)
+      {
+        NodeId nid = (int)fe[i]["nodeId"];
+
+        dit = m_dfile[eid].insert(m_dfile[eid].end(),
+          make_pair(nid, std::vector<unsigned int>() ));
+
+        cv::FileNode ff = fe[i]["features"][0];
+        dit->second.reserve(ff.size());
+
+        cv::FileNodeIterator ffit;
+        for(ffit = ff.begin(); ffit != ff.end(); ++ffit)
+        {
+          dit->second.push_back((int)*ffit);
+        }
+      }
+    } // for each entry
+  } // if use_id
 }
 
 // --------------------------------------------------------------------------

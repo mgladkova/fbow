@@ -23,6 +23,8 @@
 #include "fbow_exports.h"
 #include "fbow.h"
 
+#include <opencv2/core/persistence.hpp>
+
 namespace fbow {
 
 // For query functions
@@ -63,7 +65,7 @@ public:
    * Creates the database from a file
    * @param filename
    */
-  Database(const std::string &filename);
+  Database(const std::string &filename, bool use_di = true, int di_levels = 0);
 
   /**
    * Creates the database from a file
@@ -218,11 +220,16 @@ public:
    */
   void save(const std::string &filename) const;
 
+  void save(cv::FileStorage &fs, const std::string &name) const;
+
   /**
    * Loads the database from a file
    * @param filename
    */
   void load(const std::string &filename);
+
+  void load(const cv::FileStorage &fs, const std::string &name);
+
 
   // --------------------------------------------------------------------------
 
