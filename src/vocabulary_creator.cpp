@@ -6,6 +6,7 @@ inline int omp_get_max_threads(){return 1;}
 inline int omp_get_thread_num(){return 0;}
 #endif
 #include <iostream>
+#include <numeric>
 using namespace std;
 namespace fbow{
 
@@ -109,7 +110,8 @@ void  VocabularyCreator::createLevel(  int parent, int curL,bool recursive){
         }
 
         //initialize clusters
-        auto centers=getInitialClusterCenters(findices );
+        //auto centers = getInitialClusterCenters(findices);
+        auto centers = getInitialClustersKMpp(findices);
         center_features.resize(centers.size());
         for(size_t i=0;i<centers.size();i++)
             center_features[i]=_features[centers[i]];
@@ -187,6 +189,82 @@ std::vector<uint32_t>  VocabularyCreator::getInitialClusterCenters(const std::ve
         centers.push_back(ifeature);
     }while( centers.size() <_params.k);
     return centers;
+}
+
+std::vector<uint32_t> VocabularyCreator::getInitialClustersKMpp(const std::vector<uint32_t> &findices) {
+  // Implements kmeans++ seeding algorithm
+  // Algorithm:
+  // 1. Choose one center uniformly at random from among the data points.
+  // 2. For each data point x, compute D(x), the distance between x and the nearest
+  //    center that has already been chosen.
+  // 3. Add one new data point as a center. Each point x is chosen with probability
+  //    proportional to D(x)^2.
+  // 4. Repeat Steps 2 and 3 until k centers have been chosen.
+  // 5. Now that the initial centers have been chosen, proceed using standard k-means
+  //    clustering.
+
+    std::vector<uint32_t> centers;
+    centers.reserve(_params.k);
+    std::vector<double> min_dists(findices.size(), std::numeric_limits<double>::max());
+
+    // 1.
+    uint32_t ifeature = findices[rand()% findices.size()];
+
+    // create first cluster
+    centers.push_back(ifeature);
+
+    // compute the initial distances
+    for(unsigned int i = 0; i < findices.size(); i++){
+        min_dists[i] = dist_func(_features[ifeature], _features[findices[i]]);
+    }
+
+    while(centers.size() < _params.k){
+        // 2.
+        for(unsigned int i = 0; i < findices.size(); i++){
+            if(min_dists[i] > 0){
+                double dist = dist_func(_features[centers.back()], _features[findices[i]]);
+                if(dist < min_dists[i]){
+                    min_dists[i] = dist;
+                }
+            }
+        }
+
+        // 3.
+        double dist_sum = std::accumulate(min_dists.begin(), min_dists.end(), decltype(min_dists)::value_type(0.0));
+
+        if(dist_sum > 0){
+            double cut_d = 0.0;
+            do {
+                cut_d = (double(rand())/ double(RAND_MAX))* dist_sum;
+            } while(cut_d == 0.0);
+
+            double d_up_now = 0;
+            auto dit = min_dists.begin();
+            for(; dit != min_dists.end(); ++dit){
+                d_up_now += *dit;
+                if(d_up_now >= cut_d)
+                    break;
+            }
+
+            if(dit == min_dists.end()){
+                ifeature = min_dists.size() - 1;
+            } else {
+                ifeature = dit - min_dists.begin();
+            }
+
+            centers.push_back(ifeature);
+        } else {
+            break;
+        }
+    }
+
+    // to keep the data consistent with the method getInitialClusterCenters
+    // although the values are not used later
+    for(unsigned int i = 0; i < findices.size(); i++){
+        _features(findices[i]).m_Dist = min_dists[i];
+    }
+
+  return centers;
 }
 
 std::size_t VocabularyCreator::vhash(const std::vector<std::vector<uint32_t> > & v_vec)  {
