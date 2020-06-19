@@ -178,7 +178,8 @@ public:
    *   < 0 means all
    */
   void query(const std::vector<cv::Mat> &features, QueryResults &ret,
-    int max_results = 1, int max_id = -1) const;
+            int max_results = 1, int max_id = -1,
+            ScoringType scoring_type = ScoringType::L2_NORM) const;
   /**
    * Queries the database with some features
    * @param features query features,one per row
@@ -188,7 +189,8 @@ public:
    *   < 0 means all
    */
   void query(const  cv::Mat &features, QueryResults &ret,
-    int max_results = 1, int max_id = -1) const;
+            int max_results = 1, int max_id = -1,
+            ScoringType scoring_type = ScoringType::L2_NORM) const;
 
   /**
    * Queries the database with a vector
@@ -199,7 +201,8 @@ public:
    *   < 0 means all
    */
   void query(const BowVector &vec, QueryResults &ret,
-    int max_results = 1, int max_id = -1) const;
+            int max_results = 1, int max_id = -1,
+            ScoringType scoring_type = ScoringType::L2_NORM) const;
 
   /**
    * Returns the a feature vector associated with a database entry
@@ -241,6 +244,22 @@ protected:
 
   /// Query with L2 scoring
   void queryL2(const BowVector &vec, QueryResults &ret,
+    int max_results, int max_id) const;
+
+  /// Query with Chi square scoring
+  void queryChiSquare(const BowVector &vec, QueryResults &ret,
+    int max_results, int max_id) const;
+
+  /// Query with Bhattacharyya scoring
+  void queryBhattacharyya(const BowVector &vec, QueryResults &ret,
+    int max_results, int max_id) const;
+
+  /// Query with KL divergence scoring
+  void queryKL(const BowVector &vec, QueryResults &ret,
+    int max_results, int max_id) const;
+
+  /// Query with dot product scoring
+  void queryDotProduct(const BowVector &vec, QueryResults &ret,
     int max_results, int max_id) const;
 
 protected:

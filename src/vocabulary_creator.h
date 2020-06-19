@@ -165,7 +165,7 @@ private:
 
         uint32_t feat_idx=std::numeric_limits<uint32_t>::max();
         std::vector<uint32_t> children;
-        bool isLeaf()const{return children.size()==0;}
+        bool isLeaf()const{return children.size() == 0;}
         //if leaf, its weight and the word id
         float weight=1;
     };

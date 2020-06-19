@@ -64,6 +64,7 @@ void VocabularyCreator::create(fbow::Vocabulary& Voc, const std::vector<cv::Mat>
     else{
         createLevel(0,0,true);
     }
+
 //    std::cout<<TheTree.size()<<std::endl;
 //    for(auto &n:TheTree.getNodes())
 //        std::cout<<n.first<<" ";std::cout<<std::endl;
@@ -237,8 +238,7 @@ void VocabularyCreator::assignToClusters( const std::vector<uint32_t> &findices,
                     assigments[c_assl.first]->push_back(id);
             }
         }
-    }
-    else{
+    } else {
 
         for(auto fi: findices){
             const auto &feature=_features[fi];
@@ -350,11 +350,13 @@ void VocabularyCreator::convertIntoVoc(Vocabulary& Voc,  std::string  desc_name)
             else nodeid_blockid.insert(std::make_pair(node.first,nonLeafNodes++));
 
     }
+    // std::cout << "Number of leaves = " << nLeafNodes << std::endl;
+    // std::cout << "Number of nodes = " << TheTree.getNodes().size() << std::endl;
     //determine the basic elements
     Voc.clear();
     int aligment=8;
     if (_descType==CV_32F) aligment=32;
-    Voc.setParams(aligment,_params.k,_descType,_descNBytes,nonLeafNodes,desc_name, ScoringType::L2_NORM);
+    Voc.setParams(aligment, _params.k, _descType, _descNBytes, nLeafNodes, desc_name);
 
     //lets start
     for(auto &node:TheTree.getNodes()){
@@ -367,8 +369,9 @@ void VocabularyCreator::convertIntoVoc(Vocabulary& Voc,  std::string  desc_name)
                 Node &child=TheTree.getNodes()[node.second.children[c]];
                 binfo.setFeature(c,child.feature);
                 //go to the end and set info
-                if (child.isLeaf())   binfo.getBlockNodeInfo(c)->setLeaf(child.feat_idx,child.weight);
-                else {
+                if (child.isLeaf()){
+                    binfo.getBlockNodeInfo(c)->setLeaf(child.feat_idx, child.weight);
+                } else {
                     binfo.getBlockNodeInfo(c)->setNonLeaf(nodeid_blockid[child.id]);
                     areAllChildrenLeaf=false;
                 }

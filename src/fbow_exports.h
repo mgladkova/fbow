@@ -60,8 +60,13 @@ typedef double WordValue;
 /// Id of nodes in the vocabulary tree
 typedef unsigned int NodeId;
 
-enum ScoringType
-{
-  L1_NORM,
-  L2_NORM
-};
+namespace fbow {
+  enum ScoringType {
+    L1_NORM,
+    L2_NORM,
+    CHI_SQUARE,
+    KL,
+    BHATTACHARYYA,
+    DOT_PRODUCT
+  };
+}
