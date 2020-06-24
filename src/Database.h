@@ -181,7 +181,7 @@ public:
    */
   void query(const std::vector<cv::Mat> &features, QueryResults &ret,
             int max_results = 1, int max_id = -1,
-            ScoringType scoring_type = ScoringType::L2_NORM) const;
+            ScoringType scoring_type = ScoringType::L2_NORM);
   /**
    * Queries the database with some features
    * @param features query features,one per row
@@ -192,7 +192,7 @@ public:
    */
   void query(const  cv::Mat &features, QueryResults &ret,
             int max_results = 1, int max_id = -1,
-            ScoringType scoring_type = ScoringType::L2_NORM) const;
+            ScoringType scoring_type = ScoringType::L2_NORM);
 
   /**
    * Queries the database with a vector
@@ -204,7 +204,7 @@ public:
    */
   void query(const BowVector &vec, QueryResults &ret,
             int max_results = 1, int max_id = -1,
-            ScoringType scoring_type = ScoringType::L2_NORM) const;
+            ScoringType scoring_type = ScoringType::L2_NORM);
 
   /**
    * Returns the a feature vector associated with a database entry
@@ -246,28 +246,22 @@ public:
 protected:
 
   /// Query with L1 scoring
-  void queryL1(const BowVector &vec, QueryResults &ret,
-    int max_results, int max_id) const;
+  void queryL1(const BowVector &vec, QueryResults &ret, int max_results, int max_id);
 
   /// Query with L2 scoring
-  void queryL2(const BowVector &vec, QueryResults &ret,
-    int max_results, int max_id) const;
+  void queryL2(const BowVector &vec, QueryResults &ret, int max_results, int max_id);
 
   /// Query with Chi square scoring
-  void queryChiSquare(const BowVector &vec, QueryResults &ret,
-    int max_results, int max_id) const;
+  void queryChiSquare(const BowVector &vec, QueryResults &ret, int max_results, int max_id);
 
   /// Query with Bhattacharyya scoring
-  void queryBhattacharyya(const BowVector &vec, QueryResults &ret,
-    int max_results, int max_id) const;
+  void queryBhattacharyya(const BowVector &vec, QueryResults &ret, int max_results, int max_id);
 
   /// Query with KL divergence scoring
-  void queryKL(const BowVector &vec, QueryResults &ret,
-    int max_results, int max_id) const;
+  void queryKL(const BowVector &vec, QueryResults &ret, int max_results, int max_id);
 
   /// Query with dot product scoring
-  void queryDotProduct(const BowVector &vec, QueryResults &ret,
-    int max_results, int max_id) const;
+  void queryDotProduct(const BowVector &vec, QueryResults &ret, int max_results, int max_id);
 
 protected:
 
@@ -307,7 +301,7 @@ protected:
   // IFRows are sorted in ascending entry_id order
 
   /// Inverted index
-  typedef std::vector<IFRow> InvertedFile;
+  typedef std::map<WordId, IFRow> InvertedFile;
   // InvertedFile[word_id] --> inverted file of that word
 
   /* Direct file declaration */

@@ -64,8 +64,13 @@ Database& Database::operator=(const Database &db){
 
 EntryId Database::add(const  cv::Mat &features, BowVector *bowvec, FeatureVector *fvec){
     std::vector<cv::Mat> vf(features.rows);
-    for(int r=0;r<features.rows;r++){
-      vf[r]=features.rowRange(r,r+1);
+    for(int r=0; r<features.rows; r++){
+      vf[r] = cv::Mat(1, features.cols, features.type(), cv::Scalar(0));
+      if (features.type() == CV_8U){
+        memcpy(vf[r].data, features.row(r).data, features.cols*sizeof(uchar));
+      } else if (features.type() == CV_32F){
+        memcpy(vf[r].data, features.row(r).data, features.cols*sizeof(float));
+      }
     }
     return add(vf,bowvec,fvec);
 }
@@ -114,9 +119,12 @@ EntryId Database::add(const BowVector &v,
   for(vit = v.begin(); vit != v.end(); ++vit){
     const WordId& word_id = vit->first;
     const WordValue& word_weight = vit->second;
-    //std::cout << word_id << std::endl;
-    IFRow& ifrow = m_ifile[word_id];
-    ifrow.push_back(IFPair(entry_id, word_weight));
+    // std::cout << word_id << std::endl;
+    if (m_ifile.find(word_id) == m_ifile.end()){
+      m_ifile[word_id] = IFRow();
+    }
+
+    m_ifile[word_id].push_back(IFPair(entry_id, word_weight));
   }
 
   return entry_id;
@@ -154,8 +162,7 @@ const std::shared_ptr<Vocabulary> Database::getVocabulary() const {
 
 void Database::clear(){
   // resize vectors
-  m_ifile.resize(0);
-  m_ifile.resize(m_voc->size());
+  m_ifile.clear();
   m_dfile.resize(0);
   m_nentries = 0;
 }
@@ -165,20 +172,6 @@ void Database::clear(){
 
 void Database::allocate(int nd, int ni)
 {
-  // m_ifile already contains |words| items
-  if(ni > 0)
-  {
-    for(auto rit = m_ifile.begin(); rit != m_ifile.end(); ++rit)
-    {
-      int n = (int)rit->size();
-      if(ni > n)
-      {
-        rit->resize(ni);
-        rit->resize(n);
-      }
-    }
-  }
-
   if(m_use_di && (int)m_dfile.size() < nd){
     m_dfile.resize(nd);
   }
@@ -189,7 +182,7 @@ void Database::allocate(int nd, int ni)
 // --------------------------------------------------------------------------
 
 void Database::query(const cv::Mat &features, QueryResults &ret,
-                     int max_results, int max_id, ScoringType scoring_type) const {
+                     int max_results, int max_id, ScoringType scoring_type) {
     BowVector vec;
     m_voc->transform(features, vec);
     query(vec, ret, max_results, max_id, scoring_type);
@@ -198,7 +191,7 @@ void Database::query(const cv::Mat &features, QueryResults &ret,
 
 
 void Database::query(const std::vector<cv::Mat> &features, QueryResults &ret,
-                    int max_results, int max_id, ScoringType scoring_type) const {
+                    int max_results, int max_id, ScoringType scoring_type) {
   BowVector vec;
   m_voc->transform(features, vec);
   query(vec, ret, max_results, max_id, scoring_type);
@@ -208,7 +201,7 @@ void Database::query(const std::vector<cv::Mat> &features, QueryResults &ret,
 
 
 void Database::query(const BowVector &vec, QueryResults &ret,
-                     int max_results, int max_id, ScoringType scoring_type) const {
+                     int max_results, int max_id, ScoringType scoring_type) {
   ret.clear();
 
   switch(scoring_type){
@@ -245,7 +238,7 @@ void Database::query(const BowVector &vec, QueryResults &ret,
 
 
 void Database::queryL1(const BowVector &vec,
-  QueryResults &ret, int max_results, int max_id) const {
+  QueryResults &ret, int max_results, int max_id) {
   BowVector::const_iterator vit;
 
   std::map<EntryId, double> pairs;
@@ -267,7 +260,7 @@ void Database::queryL1(const BowVector &vec,
 
       if((int)entry_id < max_id || max_id == -1)
       {
-        double value = fabs(qvalue - dvalue) - fabs(qvalue) - fabs(dvalue);
+        double value = std::abs(qvalue - dvalue) - std::abs(qvalue) - std::abs(dvalue);
 
         pit = pairs.lower_bound(entry_id);
         if(pit != pairs.end() && !(pairs.key_comp()(entry_id, pit->first)))
@@ -315,7 +308,7 @@ void Database::queryL1(const BowVector &vec,
 
 
 void Database::queryL2(const BowVector &vec,
-  QueryResults &ret, int max_results, int max_id) const
+  QueryResults &ret, int max_results, int max_id)
 {
   BowVector::const_iterator vit;
 
@@ -399,7 +392,7 @@ void Database::queryL2(const BowVector &vec,
 }
 
 void Database::queryChiSquare(const BowVector &vec,
-  QueryResults &ret, int max_results, int max_id) const
+  QueryResults &ret, int max_results, int max_id)
 {
   BowVector::const_iterator vit;
 
@@ -508,8 +501,7 @@ void Database::queryChiSquare(const BowVector &vec,
 // --------------------------------------------------------------------------
 
 
-void Database::queryKL(const BowVector &vec, QueryResults &ret,
-                       int max_results, int max_id) const {
+void Database::queryKL(const BowVector &vec, QueryResults &ret, int max_results, int max_id) {
   BowVector::const_iterator vit;
 
   std::map<EntryId, double> pairs;
@@ -598,8 +590,7 @@ void Database::queryKL(const BowVector &vec, QueryResults &ret,
 
 
 void Database::queryBhattacharyya(
-  const BowVector &vec, QueryResults &ret, int max_results, int max_id) const
-{
+  const BowVector &vec, QueryResults &ret, int max_results, int max_id){
   BowVector::const_iterator vit;
 
   //map<EntryId, double> pairs;
@@ -669,9 +660,7 @@ void Database::queryBhattacharyya(
 // ---------------------------------------------------------------------------
 
 
-void Database::queryDotProduct(
-  const BowVector &vec, QueryResults &ret, int max_results, int max_id) const
-{
+void Database::queryDotProduct(const BowVector &vec, QueryResults &ret, int max_results, int max_id){
   BowVector::const_iterator vit;
 
   std::map<EntryId, double> pairs;
@@ -787,9 +776,11 @@ void Database::save(cv::FileStorage &fs, const std::string &name) const {
    for(auto iit = m_ifile.begin(); iit != m_ifile.end(); ++iit)
   {
     fs << "["; // word of IF
-    for(auto irit = iit->begin(); irit != iit->end(); ++irit){
+    auto ifRow = iit->second;
+    for(auto irit = ifRow.begin(); irit != ifRow.end(); ++irit){
       fs << "{:"
-        << "imageId" << (int)irit->entry_id
+        << "wordId" << static_cast<int>(iit->first)
+        << "imageId" << static_cast<int>(irit->entry_id)
         << "weight" << irit->word_weight
         << "}";
     }
@@ -843,14 +834,16 @@ void Database::load(const std::string &filename){
 void Database::load(const cv::FileStorage &fs, const std::string &name){
   // load voc first
   // subclasses must instantiate m_voc before calling this ::load
-  if(m_voc == nullptr)
+  if(m_voc == nullptr){
     m_voc = std::shared_ptr<Vocabulary>(new Vocabulary());
+  }
 
+  Vocabulary voc;
   std::string voc_name = "voc_" + name;
   m_voc->readFromFile(voc_name);
 
   // load database now
-  clear(); // resizes inverted file
+  clear();
 
   cv::FileNode fdb = fs[name];
 
@@ -859,14 +852,17 @@ void Database::load(const cv::FileStorage &fs, const std::string &name){
   m_dilevels = (int)fdb["diLevels"];
 
   cv::FileNode fn = fdb["invertedIndex"];
-  for(WordId wid = 0; wid < fn.size(); ++wid){
-    cv::FileNode fw = fn[wid];
+  for(size_t j = 0; j < fn.size(); ++j){
+    cv::FileNode fw = fn[j];
 
     for(unsigned int i = 0; i < fw.size(); ++i)
     {
-      EntryId eid = (int)fw[i]["imageId"];
+      WordId wid = (int)fw[i]["wordId"];
+      EntryId eid = static_cast<int>(fw[i]["imageId"]);
       WordValue v = fw[i]["weight"];
-
+      if (m_ifile.find(wid) == m_ifile.end()){
+        m_ifile[wid] = IFRow();
+      }
       m_ifile[wid].push_back(IFPair(eid, v));
     }
   }

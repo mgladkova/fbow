@@ -10,8 +10,7 @@ inline int omp_get_thread_num(){return 0;}
 using namespace std;
 namespace fbow{
 
-void VocabularyCreator::create(fbow::Vocabulary& Voc, const  cv::Mat  &features, const std::string &desc_name, Params params)
-{
+void VocabularyCreator::create(fbow::Vocabulary& Voc, const  cv::Mat  &features, const std::string &desc_name, Params params){
     std::vector<cv::Mat> vfeatures(1);
     vfeatures[0]=features;
     create(Voc,vfeatures,desc_name,params);
@@ -126,10 +125,11 @@ void  VocabularyCreator::createLevel(  int parent, int curL,bool recursive){
             center_features=recomputeCenters(assigments_ref/*,parent==0*/);
             cur_hash=vhash(assigments_ref);
             niters++;
-           };
+        }
 
         assignToClusters(findices,center_features,assigments_ref /*,parent==0*/);
-        if (_params.verbose) std::cerr<<"Cluster created :"<<parent<<" "<<curL<<endl;
+        if (_params.verbose)
+            std::cerr<<"Cluster created :"<<parent<<" "<<curL<<endl;
 
     }
 
@@ -161,18 +161,17 @@ void  VocabularyCreator::createLevel(  int parent, int curL,bool recursive){
     }
 }
 
-std::vector<uint32_t>  VocabularyCreator::getInitialClusterCenters(const std::vector<uint32_t> &findices  )
-{
-
+std::vector<uint32_t>  VocabularyCreator::getInitialClusterCenters(const std::vector<uint32_t> &findices  ){
     //set distances to zero
-
     for(auto fi:findices) _features(fi).m_Dist=0;
 
     std::vector<uint32_t>   centers;
     centers.reserve(_params.k);
 
+    int idx = rand() % findices.size();
     // 1.Choose one center uniformly at random from among the data points.
-    uint32_t ifeature = findices[rand()% findices.size()];
+    uint32_t ifeature = findices[idx];
+    std::cout << idx << " " << findices.size() << " " << ifeature << std::endl;
     // create first cluster
     centers.push_back(ifeature);
     do{
@@ -203,6 +202,7 @@ std::vector<uint32_t> VocabularyCreator::getInitialClustersKMpp(const std::vecto
   // 5. Now that the initial centers have been chosen, proceed using standard k-means
   //    clustering.
 
+    srand(0);
     std::vector<uint32_t> centers;
     centers.reserve(_params.k);
     std::vector<double> min_dists(findices.size(), std::numeric_limits<double>::max());
@@ -294,7 +294,7 @@ std::size_t VocabularyCreator::vhash(const std::vector<vector_sptr> &v_vec)  {
 
 void VocabularyCreator::assignToClusters( const std::vector<uint32_t> &findices,  const std::vector<cv::Mat> &center_features,std::vector<vector_sptr> &assigments,bool omp){
     for(auto &a:assigments) a->clear();
-    if(omp  ){
+    if(omp){
         std::vector<std::map<uint32_t,std::list<uint32_t> > >map_assigments_omp(omp_get_max_threads());
 #pragma omp parallel for
         for(int i=0;i< int(findices.size());i++){
@@ -344,25 +344,22 @@ void VocabularyCreator::assignToClusters( const std::vector<uint32_t> &findices,
  * @param assigments
  * @return
  */
-
-
 std::vector<cv::Mat> VocabularyCreator::recomputeCenters(  const std::vector<vector_sptr> &assigments,bool omp){
-std::vector<cv::Mat> centers;
-if (omp){
-    centers.resize(assigments.size());
+    std::vector<cv::Mat> centers;
+    if (omp){
+        centers.resize(assigments.size());
 #pragma omp parallel for
-    for(int i=0;i<int(assigments.size());i++){
-        if (_descType==CV_8UC1)   centers[i]=meanValue_binary(*assigments[i]);
-        else centers[i]=meanValue_float(*assigments[i]) ;
+        for(int i=0;i<int(assigments.size());i++){
+            if (_descType==CV_8UC1)   centers[i]=meanValue_binary(*assigments[i]);
+            else centers[i]=meanValue_float(*assigments[i]) ;
+        }
+    } else {
+        centers.reserve(assigments.size());
+        for(const auto &ass:assigments){
+            if (_descType==CV_8UC1)   centers.push_back(meanValue_binary(*ass) );
+            else centers.push_back(meanValue_float(*ass) );
+        }
     }
-}
-else{
-    centers.reserve(assigments.size());
-    for(const auto &ass:assigments){
-        if (_descType==CV_8UC1)   centers.push_back(meanValue_binary(*ass) );
-        else centers.push_back(meanValue_float(*ass) );
-    }
-}
     return centers;
 }
 cv::Mat VocabularyCreator::meanValue_binary( const std::vector<uint32_t>  &indices)
@@ -401,10 +398,9 @@ return mean;
 }
 
 cv::Mat VocabularyCreator::meanValue_float( const std::vector<uint32_t>  &indices){
-    cv::Mat mean(1,_descCols,_descType);
-    mean.setTo(cv::Scalar::all(0));
+    cv::Mat mean(1,_descCols,_descType, cv::Scalar(0));
     for(auto i:indices) mean +=  _features[i] ;
-    mean*= 1./double( indices.size());
+    mean*= 1.0 / indices.size();
 
     return mean;
 }
@@ -428,6 +424,11 @@ void VocabularyCreator::convertIntoVoc(Vocabulary& Voc,  std::string  desc_name)
             else nodeid_blockid.insert(std::make_pair(node.first,nonLeafNodes++));
 
     }
+    if (nLeafNodes < _features.size()){
+        std::cerr << "All features cannot be represented by the tree, increase branching factor k and depth l!" << std::endl;
+        exit(1);
+    }
+
     std::cout << "Number of leaves = " << nLeafNodes << std::endl;
     std::cout << "Number of non-leaves = " << nonLeafNodes << std::endl;
     std::cout << "Number of nodes = " << TheTree.getNodes().size() << std::endl;
@@ -436,7 +437,7 @@ void VocabularyCreator::convertIntoVoc(Vocabulary& Voc,  std::string  desc_name)
     Voc.clear();
     int aligment=8;
     if (_descType==CV_32F) aligment=32;
-    Voc.setParams(aligment, _params.k, _descType, _descNBytes, nLeafNodes, desc_name);
+    Voc.setParams(aligment, _params.k, _descType, _descNBytes, nonLeafNodes, desc_name);
 
     //lets start
     for(auto &node:TheTree.getNodes()){

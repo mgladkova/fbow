@@ -119,7 +119,8 @@ class FBOW_API Vocabulary
     //indicates whether this object is valid
     bool isValid()const{return _data.get() != nullptr; }
     //total number of blocks
-    size_t size()const{return _params._nblocks;}
+    size_t size() const { return _params._nblocks; }
+    size_t totalsize() const { return _params._total_size; }
     //removes all data
     void clear();
     //returns a hash value idinfying the vocabulary
@@ -256,7 +257,9 @@ private:
             feature=static_cast<register_type*> (AlignedAlloc(aligment,_nwords*sizeof(register_type )));
            memset(feature,0,_nwords*sizeof(register_type ));
         }
-        inline void startwithfeature(const register_type *feat_ptr){memcpy(feature,feat_ptr,_desc_size);}
+        inline void startwithfeature(const register_type *feat_ptr){
+            memcpy(feature,feat_ptr,_nwords*sizeof(register_type ));
+        }
         virtual distType computeDist(register_type *fptr)=0;
 
     };
@@ -487,7 +490,7 @@ private:
         std::pair<DType,uint32_t> best_dist_idx(std::numeric_limits<uint32_t>::max(),0);//minimum distance found
         block_node_info *bn_info;
         for(unsigned int cur_feature = 0; cur_feature < features.size(); cur_feature++){
-            comp.startwithfeature(features[cur_feature].ptr<TData>(0));
+            comp.startwithfeature(features[cur_feature].ptr<TData>());
             //ensure feature is in a
             Block c_block=getBlock(0);
               //copy to another structure and add padding with zeros
@@ -525,7 +528,7 @@ private:
               block_node_info *bn_info;
               int nbits=ceil(log2(_params._m_k));
               for(unsigned int cur_feature=0; cur_feature < features.size(); cur_feature++){
-                  comp.startwithfeature(features[cur_feature].ptr<TData>(0));
+                  comp.startwithfeature(features[cur_feature].ptr<TData>());
                   //ensure feature is in a
                   Block c_block=getBlock(0);
                   uint32_t level=0;//current level of recursion
